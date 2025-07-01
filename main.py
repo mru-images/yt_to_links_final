@@ -1,8 +1,9 @@
 from fastapi import FastAPI, HTTPException, Query
-import requests, json, os
+import requests, json, os, re
+from io import BytesIO
 from supabase import create_client, Client
 
-# 🔐 Credentials
+# 🔐 Load from Environment Variables
 PCLOUD_AUTH_TOKEN = os.getenv("PCLOUD_AUTH_TOKEN")
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
@@ -12,17 +13,24 @@ RAPIDAPI_KEY = os.getenv("RAPIDAPI_KEY")
 
 SONGS_FOLDER = "songs_test"
 IMGS_FOLDER = "imgs_test"
+
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 app = FastAPI()
 
 # --- Utilities ---
-def extract_video_id(url):
+def extract_video_id(url: str):
+    url = url.split("?")[0]
     if "youtu.be/" in url:
-        return url.split("youtu.be/")[-1].split("?")[0]
+        return url.split("youtu.be/")[-1]
     elif "watch?v=" in url:
-        return url.split("watch?v=")[-1].split("&")[0]
+        return url.split("watch?v=")[-1]
     else:
         raise ValueError("Invalid YouTube URL")
+
+def sanitize_title(title: str):
+    safe_title = re.sub(r'[\\/*?:"<>|#]', '', title)
+    safe_title = re.sub(r'\s+', ' ', safe_title).strip()
+    return safe_title[:100]
 
 def get_or_create_folder(folder_name):
     res = requests.get("https://api.pcloud.com/listfolder", params={"auth": PCLOUD_AUTH_TOKEN, "folderid": 0})
@@ -32,35 +40,41 @@ def get_or_create_folder(folder_name):
     res = requests.get("https://api.pcloud.com/createfolder", params={"auth": PCLOUD_AUTH_TOKEN, "name": folder_name, "folderid": 0})
     return res.json()["metadata"]["folderid"]
 
-def upload_file(filepath, filename, folder_id):
-    with open(filepath, "rb") as f:
-        res = requests.post(
-            "https://api.pcloud.com/uploadfile",
-            params={"auth": PCLOUD_AUTH_TOKEN, "folderid": folder_id},
-            files={"file": (filename, f)}
-        )
-    fileid = res.json()["metadata"][0]["fileid"]
-    return fileid
+def upload_file_stream(file_stream, filename, folder_id):
+    res = requests.post(
+        "https://api.pcloud.com/uploadfile",
+        params={"auth": PCLOUD_AUTH_TOKEN, "folderid": folder_id},
+        files={"file": (filename, file_stream)}
+    )
+    return res.json()["metadata"][0]["fileid"]
 
-def download_thumbnail(video_id, filename_base):
+def download_mp3_stream(download_url):
+    response = requests.get(download_url, stream=True, allow_redirects=True)
+    if response.status_code != 200 or 'audio' not in response.headers.get("Content-Type", ""):
+        raise Exception("Invalid MP3 content received.")
+    buffer = BytesIO()
+    for chunk in response.iter_content(chunk_size=8192):
+        if chunk:
+            buffer.write(chunk)
+    buffer.seek(0)
+    return buffer
+
+def download_thumbnail_stream(video_id):
     qualities = ["maxresdefault", "hqdefault", "mqdefault", "default"]
     for quality in qualities:
-        thumb_url = f"https://img.youtube.com/vi/{video_id}/{quality}.jpg"
-        response = requests.get(thumb_url)
-        if response.status_code == 200:
-            thumb_filename = f"/tmp/{filename_base}.jpg"
-            with open(thumb_filename, "wb") as f:
-                f.write(response.content)
-            return thumb_filename
+        url = f"https://img.youtube.com/vi/{video_id}/{quality}.jpg"
+        res = requests.get(url)
+        if res.status_code == 200:
+            return BytesIO(res.content)
     raise Exception("Thumbnail not found.")
 
 def get_tags_from_gemini(song_name):
     PREDEFINED_TAGS = {
-        "genre": ["pop", "rock", "hiphop", "rap", "r&b", "jazz", "blues", "classical", "electronic", "edm", "house", "techno", "trance", "dubstep", "lofi", "indie", "folk", "country", "metal", "reggae", "latin", "kpop", "jpop", "bhajan", "devotional", "sufi", "instrumental", "soundtrack", "acoustic", "chillstep", "ambient"],
-        "mood": ["happy", "sad", "romantic", "chill", "energetic", "dark", "peaceful", "motivational", "angry", "nostalgic", "dreamy", "emotional", "fun", "relaxing", "aggressive", "uplifting", "sensual", "dramatic", "lonely", "hopeful", "spiritual"],
-        "occasion": ["party", "workout", "study", "sleep", "meditation", "travel", "roadtrip", "driving", "wedding", "breakup", "background", "cooking", "cleaning", "gaming", "focus", "night", "morning", "rainy_day", "summer_vibes", "monsoon_mood"],
-        "era": ["80s", "90s", "2000s", "2010s", "2020s", "oldschool", "vintage", "retro", "modern", "trending", "classic", "timeless", "underground", "viral"],
-        "vocal_instrument": ["female_vocals", "male_vocals", "duet", "group", "instrumental_only", "beats_only", "piano", "guitar", "violin", "flute", "drums", "orchestra", "bass", "live", "remix", "acoustic_version", "cover_song", "mashup", "karaoke"]
+        "genre": [...],  # use your full tag list
+        "mood": [...],
+        "occasion": [...],
+        "era": [...],
+        "vocal_instrument": [...]
     }
 
     prompt = f"""
@@ -80,20 +94,20 @@ Return in this JSON format:
 Predefined:
 {json.dumps(PREDEFINED_TAGS, indent=2)}
 """
-    response = requests.post(
+    res = requests.post(
         f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={GEMINI_API_KEY}",
         headers={"Content-Type": "application/json"},
         data=json.dumps({"contents": [{"parts": [{"text": prompt}]}]})
     )
-    if response.status_code != 200:
-        raise Exception(f"Gemini API failed: {response.text}")
-    raw_text = response.json()["candidates"][0]["content"]["parts"][0]["text"]
-    if raw_text.startswith("```json"):
-        raw_text = raw_text.strip("` \n").replace("json", "", 1).strip()
-    parsed = json.loads(raw_text)
+    if res.status_code != 200:
+        raise Exception("Gemini API failed.")
+    text = res.json()["candidates"][0]["content"]["parts"][0]["text"]
+    if text.startswith("```json"):
+        text = text.strip("` \n").replace("json", "", 1).strip()
+    parsed = json.loads(text)
     tags = []
-    for cat in ["genre", "mood", "occasion", "era", "vocal_instrument"]:
-        tags.extend(parsed.get(cat, []))
+    for key in ["genre", "mood", "occasion", "era", "vocal_instrument"]:
+        tags += parsed.get(key, [])
     return {
         "artist": parsed.get("artist", "Unknown"),
         "language": parsed.get("language", "english"),
@@ -103,54 +117,37 @@ Predefined:
 # --- API Endpoint ---
 @app.get("/process")
 def process_song(link: str = Query(..., description="YouTube video URL")):
-    mp3_filename = None
-    thumb_filename = None
     try:
-        video_id = extract_video_id(link.strip())
-
-        # Fetch video details from RapidAPI
-        response = requests.get(
+        video_id = extract_video_id(link)
+        rapid = requests.get(
             f"https://{RAPIDAPI_HOST}/dl",
             headers={"X-RapidAPI-Key": RAPIDAPI_KEY, "X-RapidAPI-Host": RAPIDAPI_HOST},
             params={"id": video_id}
-        )
-        data = response.json()
-        download_url = data.get("link")
-        title = data.get("title", "downloaded_song").replace("/", "-").replace("\\", "-").strip()
+        ).json()
+
+        title_raw = rapid.get("title", "downloaded_song")
+        title = sanitize_title(title_raw)
+        download_url = rapid.get("link")
         if not download_url:
-            raise HTTPException(status_code=400, detail="MP3 download link not found.")
+            raise Exception("MP3 link not found.")
 
-        # Download MP3
-        mp3_filename = f"/tmp/{title}.mp3"
-        mp3_data = requests.get(download_url)
-        with open(mp3_filename, "wb") as f:
-            f.write(mp3_data.content)
+        mp3_stream = download_mp3_stream(download_url)
+        thumb_stream = download_thumbnail_stream(video_id)
 
-        # Download thumbnail
-        thumb_filename = download_thumbnail(video_id, title)
-
-        # Upload to pCloud
         song_folder_id = get_or_create_folder(SONGS_FOLDER)
         img_folder_id = get_or_create_folder(IMGS_FOLDER)
-        file_id = upload_file(mp3_filename, os.path.basename(mp3_filename), song_folder_id)
-        img_id = upload_file(thumb_filename, os.path.basename(thumb_filename), img_folder_id)
-        pub = requests.get("https://api.pcloud.com/getfilepublink", params={
-            "auth": PCLOUD_AUTH_TOKEN,
-            "fileid": file_id
-        })
-        if pub.status_code != 200 or pub.json().get("result") != 0:
-            raise Exception(f"Failed to make MP3 public: {pub.text}")
-        # Get metadata from Gemini
-        tag_data = get_tags_from_gemini(title)
+        file_id = upload_file_stream(mp3_stream, f"{title}.mp3", song_folder_id)
+        img_id = upload_file_stream(thumb_stream, f"{title}.jpg", img_folder_id)
 
-        # Insert into Supabase
+        meta = get_tags_from_gemini(title)
+
         supabase.table("songs").insert({
             "file_id": file_id,
             "img_id": img_id,
             "name": title,
-            "artist": tag_data["artist"],
-            "language": tag_data["language"],
-            "tags": tag_data["tags"],
+            "artist": meta["artist"],
+            "language": meta["language"],
+            "tags": meta["tags"],
             "views": 0,
             "likes": 0
         }).execute()
@@ -160,19 +157,10 @@ def process_song(link: str = Query(..., description="YouTube video URL")):
             "file_id": file_id,
             "img_id": img_id,
             "name": title,
-            "artist": tag_data["artist"],
-            "language": tag_data["language"],
-            "tags": tag_data["tags"]
+            "artist": meta["artist"],
+            "language": meta["language"],
+            "tags": meta["tags"]
         }
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-
-    finally:
-        # ✅ Cleanup temp files
-        for file in [mp3_filename, thumb_filename]:
-            if file and os.path.exists(file):
-                try:
-                    os.remove(file)
-                except Exception as cleanup_error:
-                    print(f"⚠️ Failed to delete {file}: {cleanup_error}")
