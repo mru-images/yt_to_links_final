@@ -101,6 +101,10 @@ Predefined:
     }
 
 # --- API Endpoint ---
+@app.get("/")
+def root():
+    return {"message": "✅ Render is loading... please wait or use /process?link=YOUR_YOUTUBE_URL"}
+
 @app.get("/process")
 def process_song(link: str = Query(..., description="YouTube video URL")):
     mp3_filename = None
