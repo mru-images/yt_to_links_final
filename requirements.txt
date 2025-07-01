@@ -3,4 +3,4 @@ uvicorn
 requests
 pydantic
 supabase==1.0.3
-yt-dlp==2024.05.2
+yt-dlp
