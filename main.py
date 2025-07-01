@@ -2,7 +2,7 @@ from fastapi import FastAPI, HTTPException, Query
 import requests, json, os
 from supabase import create_client, Client
 
-# 🔐 Credentials
+# 🔐 Credentials from environment variables
 PCLOUD_AUTH_TOKEN = os.getenv("PCLOUD_AUTH_TOKEN")
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
@@ -14,6 +14,11 @@ SONGS_FOLDER = "songs_test"
 IMGS_FOLDER = "imgs_test"
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 app = FastAPI()
+
+# --- Home route for Render test ---
+@app.get("/")
+def home():
+    return {"message": "Render finished loading"}
 
 # --- Utilities ---
 def extract_video_id(url):
@@ -41,6 +46,12 @@ def upload_file(filepath, filename, folder_id):
         )
     fileid = res.json()["metadata"][0]["fileid"]
     return fileid
+
+def make_public(file_id):
+    res = requests.get("https://api.pcloud.com/getfilepublink", params={"auth": PCLOUD_AUTH_TOKEN, "fileid": file_id})
+    if res.status_code != 200 or res.json().get("code") != 200:
+        raise Exception(f"Failed to make file public: {res.text}")
+    return res.json()["link"]
 
 def download_thumbnail(video_id, filename_base):
     qualities = ["maxresdefault", "hqdefault", "mqdefault", "default"]
@@ -135,6 +146,10 @@ def process_song(link: str = Query(..., description="YouTube video URL")):
         file_id = upload_file(mp3_filename, os.path.basename(mp3_filename), song_folder_id)
         img_id = upload_file(thumb_filename, os.path.basename(thumb_filename), img_folder_id)
 
+        # Make public
+        make_public(file_id)
+        make_public(img_id)
+
         # Get metadata from Gemini
         tag_data = get_tags_from_gemini(title)
 
@@ -164,7 +179,6 @@ def process_song(link: str = Query(..., description="YouTube video URL")):
         raise HTTPException(status_code=500, detail=str(e))
 
     finally:
-        # ✅ Cleanup temp files
         for file in [mp3_filename, thumb_filename]:
             if file and os.path.exists(file):
                 try:
