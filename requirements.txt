@@ -1,0 +1,5 @@
+fastapi
+uvicorn
+requests
+pydantic
+supabase==1.0.3
