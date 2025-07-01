@@ -134,7 +134,12 @@ def process_song(link: str = Query(..., description="YouTube video URL")):
         img_folder_id = get_or_create_folder(IMGS_FOLDER)
         file_id = upload_file(mp3_filename, os.path.basename(mp3_filename), song_folder_id)
         img_id = upload_file(thumb_filename, os.path.basename(thumb_filename), img_folder_id)
-
+        pub = requests.get("https://api.pcloud.com/getfilepublink", params={
+            "auth": PCLOUD_AUTH_TOKEN,
+            "fileid": file_id
+        })
+        if pub.status_code != 200 or pub.json().get("result") != 0:
+            raise Exception(f"Failed to make MP3 public: {pub.text}")
         # Get metadata from Gemini
         tag_data = get_tags_from_gemini(title)
 
