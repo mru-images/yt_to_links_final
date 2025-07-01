@@ -4,12 +4,12 @@ from io import BytesIO
 from supabase import create_client, Client
 
 # --- 🔐 HARDCODED CREDENTIALS ---
-PCLOUD_AUTH_TOKEN = os.getenv("PCLOUD_AUTH_TOKEN")
-SUPABASE_URL = os.getenv("SUPABASE_URL")
-SUPABASE_KEY = os.getenv("SUPABASE_KEY")
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-RAPIDAPI_HOST = os.getenv("RAPIDAPI_HOST")
-RAPIDAPI_KEY = os.getenv("RAPIDAPI_KEY")
+PCLOUD_AUTH_TOKEN = "fE93KkZMjhg7ZtHMudQY9CHj5m8MDH3CFxLEKsw1y"
+SUPABASE_URL = "https://yssrurhhizdcmctxrxec.supabase.co"
+SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inlzc3J1cmhoaXpkY21jdHhyeGVjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTEyOTUzNTUsImV4cCI6MjA2Njg3MTM1NX0.h3x6OjrCWKaKR7CHNfA7dl_bnmmMj6AmmNWhWW6mpo4"
+GEMINI_API_KEY = "AIzaSyCGcpIzYiPhFIB8YiQtZNmGYTUtXQCFOoE"
+RAPIDAPI_HOST = "youtube-mp36.p.rapidapi.com"
+RAPIDAPI_KEY = "0204f09445msh6e8d74df8ff070bp1b4c6ejsn8a38abc65dfc"
 
 SONGS_FOLDER = "songs_test"
 IMGS_FOLDER = "imgs_test"
@@ -140,7 +140,7 @@ def process_song(link: str = Query(..., description="YouTube video URL")):
         img_folder_id = get_or_create_folder(IMGS_FOLDER)
         file_id = upload_file_stream(mp3_stream, f"{title}.mp3", song_folder_id)
         img_id = upload_file_stream(thumb_stream, f"{title}.jpg", img_folder_id)
-
+        
         pub = requests.get("https://api.pcloud.com/getfilepublink", params={
             "auth": PCLOUD_AUTH_TOKEN,
             "fileid": file_id
