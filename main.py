@@ -106,7 +106,7 @@ Predefined:
         "tags": tags
     }
 
-    @app.get("/process")
+@app.get("/process")
 def process_song(link: str = Query(..., description="YouTube video URL")):
     try:
         video_id = extract_video_id(link.strip())
