@@ -50,14 +50,21 @@ def upload_file_stream(file_stream, filename, folder_id):
 
 def download_mp3_stream(download_url):
     response = requests.get(download_url, stream=True, allow_redirects=True)
+    
+    print("Status Code:", response.status_code)
+    print("Content-Type:", response.headers.get("Content-Type"))
+    print("First 100 bytes:", response.content[:100])  # Caution: Don't print full binary
+
     if response.status_code != 200 or 'audio' not in response.headers.get("Content-Type", ""):
-        raise Exception("Invalid MP3 content received.")
+        raise Exception(f"Invalid MP3 content received. Status: {response.status_code}, Content-Type: {response.headers.get('Content-Type')}")
+    
     buffer = BytesIO()
     for chunk in response.iter_content(chunk_size=8192):
         if chunk:
             buffer.write(chunk)
     buffer.seek(0)
     return buffer
+
 
 def download_thumbnail_stream(video_id):
     qualities = ["maxresdefault", "hqdefault", "mqdefault", "default"]
