@@ -1,5 +1,4 @@
-from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel
+from fastapi import FastAPI, HTTPException, Query
 import requests, json, os
 from supabase import create_client, Client
 
@@ -15,10 +14,6 @@ SONGS_FOLDER = "songs_test"
 IMGS_FOLDER = "imgs_test"
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 app = FastAPI()
-
-# --- Input Schema ---
-class YouTubeURL(BaseModel):
-    url: str
 
 # --- Utilities ---
 def extract_video_id(url):
@@ -106,14 +101,14 @@ Predefined:
     }
 
 # --- API Endpoint ---
-@app.post("/process")
-def process_song(payload: YouTubeURL):
+@app.get("/process")
+def process_song(link: str = Query(..., description="YouTube video URL")):
     mp3_filename = None
     thumb_filename = None
     try:
-        video_id = extract_video_id(payload.url.strip())
+        video_id = extract_video_id(link.strip())
 
-        # Get downloadable link
+        # Fetch video details from RapidAPI
         response = requests.get(
             f"https://{RAPIDAPI_HOST}/dl",
             headers={"X-RapidAPI-Key": RAPIDAPI_KEY, "X-RapidAPI-Host": RAPIDAPI_HOST},
@@ -140,7 +135,7 @@ def process_song(payload: YouTubeURL):
         file_id = upload_file(mp3_filename, os.path.basename(mp3_filename), song_folder_id)
         img_id = upload_file(thumb_filename, os.path.basename(thumb_filename), img_folder_id)
 
-        # Get metadata
+        # Get metadata from Gemini
         tag_data = get_tags_from_gemini(title)
 
         # Insert into Supabase
