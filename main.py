@@ -3,7 +3,7 @@ import requests, json, os, re
 from io import BytesIO
 from supabase import create_client, Client
 
-# 🔐 Load from Environment Variables
+# --- Load from environment variables ---
 PCLOUD_AUTH_TOKEN = os.getenv("PCLOUD_AUTH_TOKEN")
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
@@ -11,11 +11,12 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 RAPIDAPI_HOST = os.getenv("RAPIDAPI_HOST")
 RAPIDAPI_KEY = os.getenv("RAPIDAPI_KEY")
 
-SONGS_FOLDER = "songs_test"
-IMGS_FOLDER = "imgs_test"
+SONGS_FOLDER = "songs_render"
+IMGS_FOLDER = "imgs_render"
 
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 app = FastAPI()
+
 
 # --- Utilities ---
 def extract_video_id(url: str):
@@ -29,8 +30,7 @@ def extract_video_id(url: str):
 
 def sanitize_title(title: str):
     safe_title = re.sub(r'[\\/*?:"<>|#]', '', title)
-    safe_title = re.sub(r'\s+', ' ', safe_title).strip()
-    return safe_title[:100]
+    return re.sub(r'\s+', ' ', safe_title).strip()[:100]
 
 def get_or_create_folder(folder_name):
     res = requests.get("https://api.pcloud.com/listfolder", params={"auth": PCLOUD_AUTH_TOKEN, "folderid": 0})
@@ -49,19 +49,18 @@ def upload_file_stream(file_stream, filename, folder_id):
     return res.json()["metadata"][0]["fileid"]
 
 def download_mp3_stream(download_url):
-    response = requests.get(download_url, stream=True, allow_redirects=True)
-    if response.status_code != 200 or 'audio' not in response.headers.get("Content-Type", ""):
+    res = requests.get(download_url, stream=True, allow_redirects=True)
+    if res.status_code != 200 or 'audio' not in res.headers.get("Content-Type", ""):
         raise Exception("Invalid MP3 content received.")
-    buffer = BytesIO()
-    for chunk in response.iter_content(chunk_size=8192):
+    buf = BytesIO()
+    for chunk in res.iter_content(chunk_size=8192):
         if chunk:
-            buffer.write(chunk)
-    buffer.seek(0)
-    return buffer
+            buf.write(chunk)
+    buf.seek(0)
+    return buf
 
 def download_thumbnail_stream(video_id):
-    qualities = ["maxresdefault", "hqdefault", "mqdefault", "default"]
-    for quality in qualities:
+    for quality in ["maxresdefault", "hqdefault", "mqdefault", "default"]:
         url = f"https://img.youtube.com/vi/{video_id}/{quality}.jpg"
         res = requests.get(url)
         if res.status_code == 200:
@@ -70,30 +69,17 @@ def download_thumbnail_stream(video_id):
 
 def get_tags_from_gemini(song_name):
     PREDEFINED_TAGS = {
-        "genre": [...],  # use your full tag list
-        "mood": [...],
-        "occasion": [...],
-        "era": [...],
-        "vocal_instrument": [...]
+        "genre": ["pop", "rock", "hiphop", "rap", "r&b", "jazz", "blues", "classical", "electronic", "edm", "house", "techno", "trance", "dubstep", "lofi", "indie", "folk", "country", "metal", "reggae", "latin", "kpop", "jpop", "bhajan", "devotional", "sufi", "instrumental", "soundtrack", "acoustic", "chillstep", "ambient"],
+        "mood": ["happy", "sad", "romantic", "chill", "energetic", "dark", "peaceful", "motivational", "angry", "nostalgic", "dreamy", "emotional", "fun", "relaxing", "aggressive", "uplifting", "sensual", "dramatic", "lonely", "hopeful", "spiritual"],
+        "occasion": ["party", "workout", "study", "sleep", "meditation", "travel", "roadtrip", "driving", "wedding", "breakup", "background", "cooking", "cleaning", "gaming", "focus", "night", "morning", "rainy_day", "summer_vibes", "monsoon_mood"],
+        "era": ["80s", "90s", "2000s", "2010s", "2020s", "oldschool", "vintage", "retro", "modern", "trending", "classic", "timeless", "underground", "viral"],
+        "vocal_instrument": ["female_vocals", "male_vocals", "duet", "group", "instrumental_only", "beats_only", "piano", "guitar", "violin", "flute", "drums", "orchestra", "bass", "live", "remix", "acoustic_version", "cover_song", "mashup", "karaoke"]
     }
 
-    prompt = f"""
-Given the song name "{song_name}", identify its primary artist and language.
-Then, suggest appropriate tags from the predefined categories below.
-Use ONLY tags from these predefined lists.
-Return in this JSON format:
-{{
-  "artist": "Artist Name",
-  "language": "Language",
-  "genre": [...],
-  "mood": [...],
-  "occasion": [...],
-  "era": [...],
-  "vocal_instrument": [...]
-}}
-Predefined:
-{json.dumps(PREDEFINED_TAGS, indent=2)}
-"""
+    prompt = f"""Given the song name "{song_name}", identify its primary artist and language...
+Return in this JSON format...
+{json.dumps(PREDEFINED_TAGS, indent=2)}"""
+
     res = requests.post(
         f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={GEMINI_API_KEY}",
         headers={"Content-Type": "application/json"},
@@ -113,6 +99,7 @@ Predefined:
         "language": parsed.get("language", "english"),
         "tags": tags
     }
+
 
 # --- API Endpoint ---
 @app.get("/process")
