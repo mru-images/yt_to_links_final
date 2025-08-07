@@ -4,3 +4,4 @@ requests
 pydantic
 supabase==1.0.3
 yt-dlp
+python-dotenv
