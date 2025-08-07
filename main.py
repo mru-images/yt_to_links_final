@@ -25,8 +25,6 @@ SONGS_FOLDER = "songs_test"
 IMGS_FOLDER = "imgs_test"
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-app = FastAPI()
-
 # Input model
 class SongDownloadData(BaseModel):
     downloadUrl: str
@@ -167,4 +165,5 @@ def process_link(data: SongDownloadData):
                     os.remove(file)
                 except Exception as cleanup_error:
                     print(f"Failed to delete {file}: {cleanup_error}")
+
 
