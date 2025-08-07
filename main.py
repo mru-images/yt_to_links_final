@@ -2,10 +2,19 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 import requests, json, os
 from supabase import create_client, Client
-
+from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
 load_dotenv()
 
+app = FastAPI()
+
+# Enable CORS for all origins (adjust if needed)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 # Environment Variables
 PCLOUD_AUTH_TOKEN = os.getenv("PCLOUD_AUTH_TOKEN")
 SUPABASE_URL = os.getenv("SUPABASE_URL")
@@ -158,3 +167,4 @@ def process_link(data: SongDownloadData):
                     os.remove(file)
                 except Exception as cleanup_error:
                     print(f"Failed to delete {file}: {cleanup_error}")
+
